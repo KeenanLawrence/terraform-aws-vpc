@@ -334,6 +334,125 @@ resource "aws_network_acl_rule" "private_outbound" {
 }
 
 ################################################################################
+# EKS Control Plane Subnets
+################################################################################
+
+locals {
+  create_eks_control_plane_subnets = local.create_vpc && local.len_eks_control_plane_subnets > 0
+}
+
+resource "aws_subnet" "eks_control_plane" {
+  count = local.create_eks_control_plane_subnets ? local.len_eks_control_plane_subnets : 0
+
+  assign_ipv6_address_on_creation                = var.enable_ipv6 && var.eks_control_plane_subnet_ipv6_native ? true : var.eks_control_plane_subnet_assign_ipv6_address_on_creation
+  availability_zone                              = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
+  availability_zone_id                           = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) == 0 ? element(var.azs, count.index) : null
+  cidr_block                                     = var.eks_control_plane_subnet_ipv6_native ? null : element(concat(var.eks_control_plane_subnets, [""]), count.index)
+  enable_dns64                                   = var.enable_ipv6 && var.eks_control_plane_subnet_enable_dns64
+  enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.eks_control_plane_subnet_enable_resource_name_dns_aaaa_record_on_launch
+  enable_resource_name_dns_a_record_on_launch    = !var.eks_control_plane_subnet_ipv6_native && var.eks_control_plane_subnet_enable_resource_name_dns_a_record_on_launch
+  ipv6_cidr_block                                = var.enable_ipv6 && length(var.eks_control_plane_subnet_ipv6_prefixes) > 0 ? cidrsubnet(aws_vpc.this[0].ipv6_cidr_block, 8, var.eks_control_plane_subnet_ipv6_prefixes[count.index]) : null
+  ipv6_native                                    = var.enable_ipv6 && var.eks_control_plane_subnet_ipv6_native
+  private_dns_hostname_type_on_launch            = var.eks_control_plane_subnet_private_dns_hostname_type_on_launch
+  vpc_id                                         = local.vpc_id
+
+  tags = merge(
+    {
+      Name = try(
+        var.eks_control_plane_subnet_names[count.index],
+        format("${var.name}-${var.eks_control_plane_subnet_suffix}-%s", element(var.azs, count.index))
+      )
+    },
+    var.tags,
+    var.eks_control_plane_subnet_tags,
+    lookup(var.eks_control_plane_subnet_tags_per_az, element(var.azs, count.index), {})
+  )
+}
+
+# There are as many routing tables as the number of NAT gateways
+resource "aws_route_table" "eks_control_plane" {
+  count = local.create_eks_control_plane_subnets && local.max_subnet_length > 0 ? local.nat_gateway_count : 0
+
+  vpc_id = local.vpc_id
+
+  tags = merge(
+    {
+      "Name" = var.single_nat_gateway ? "${var.name}-${var.eks_control_plane_subnet_suffix}" : format(
+        "${var.name}-${var.eks_control_plane_subnet_suffix}-%s",
+        element(var.azs, count.index),
+      )
+    },
+    var.tags,
+    var.eks_control_plane_route_table_tags,
+  )
+}
+
+resource "aws_route_table_association" "eks_control_plane" {
+  count = local.create_eks_control_plane_subnets ? local.len_eks_control_plane_subnets : 0
+
+  subnet_id = element(aws_subnet.eks_control_plane[*].id, count.index)
+  route_table_id = element(
+    aws_route_table.eks_control_plane[*].id,
+    var.single_nat_gateway ? 0 : count.index,
+  )
+}
+
+################################################################################
+# EKS Control Plane Network ACLs
+################################################################################
+
+locals {
+  create_eks_control_plane_network_acl = local.create_eks_control_plane_subnets && var.eks_control_plane_dedicated_network_acl
+}
+
+resource "aws_network_acl" "eks_control_plane" {
+  count = local.create_eks_control_plane_network_acl ? 1 : 0
+
+  vpc_id     = local.vpc_id
+  subnet_ids = aws_subnet.eks_control_plane[*].id
+
+  tags = merge(
+    { "Name" = "${var.name}-${var.eks_control_plane_subnet_suffix}" },
+    var.tags,
+    var.eks_control_plane_acl_tags,
+  )
+}
+
+resource "aws_network_acl_rule" "eks_control_plane_inbound" {
+  count = local.create_eks_control_plane_network_acl ? length(var.eks_control_plane_inbound_acl_rules) : 0
+
+  network_acl_id = aws_network_acl.eks_control_plane[0].id
+
+  egress          = false
+  rule_number     = var.eks_control_plane_inbound_acl_rules[count.index]["rule_number"]
+  rule_action     = var.eks_control_plane_inbound_acl_rules[count.index]["rule_action"]
+  from_port       = lookup(var.eks_control_plane_inbound_acl_rules[count.index], "from_port", null)
+  to_port         = lookup(var.eks_control_plane_inbound_acl_rules[count.index], "to_port", null)
+  icmp_code       = lookup(var.eks_control_plane_inbound_acl_rules[count.index], "icmp_code", null)
+  icmp_type       = lookup(var.eks_control_plane_inbound_acl_rules[count.index], "icmp_type", null)
+  protocol        = var.eks_control_plane_inbound_acl_rules[count.index]["protocol"]
+  cidr_block      = lookup(var.eks_control_plane_inbound_acl_rules[count.index], "cidr_block", null)
+  ipv6_cidr_block = lookup(var.eks_control_plane_inbound_acl_rules[count.index], "ipv6_cidr_block", null)
+}
+
+resource "aws_network_acl_rule" "eks_control_plane_outbound" {
+  count = local.create_eks_control_plane_network_acl ? length(var.eks_control_plane_outbound_acl_rules) : 0
+
+  network_acl_id = aws_network_acl.eks_control_plane[0].id
+
+  egress          = true
+  rule_number     = var.eks_control_plane_outbound_acl_rules[count.index]["rule_number"]
+  rule_action     = var.eks_control_plane_outbound_acl_rules[count.index]["rule_action"]
+  from_port       = lookup(var.eks_control_plane_outbound_acl_rules[count.index], "from_port", null)
+  to_port         = lookup(var.eks_control_plane_outbound_acl_rules[count.index], "to_port", null)
+  icmp_code       = lookup(var.eks_control_plane_outbound_acl_rules[count.index], "icmp_code", null)
+  icmp_type       = lookup(var.eks_control_plane_outbound_acl_rules[count.index], "icmp_type", null)
+  protocol        = var.eks_control_plane_outbound_acl_rules[count.index]["protocol"]
+  cidr_block      = lookup(var.eks_control_plane_outbound_acl_rules[count.index], "cidr_block", null)
+  ipv6_cidr_block = lookup(var.eks_control_plane_outbound_acl_rules[count.index], "ipv6_cidr_block", null)
+}
+
+################################################################################
 # Database Subnets
 ################################################################################
 
@@ -513,6 +632,125 @@ resource "aws_network_acl_rule" "database_outbound" {
   protocol        = var.database_outbound_acl_rules[count.index]["protocol"]
   cidr_block      = lookup(var.database_outbound_acl_rules[count.index], "cidr_block", null)
   ipv6_cidr_block = lookup(var.database_outbound_acl_rules[count.index], "ipv6_cidr_block", null)
+}
+
+################################################################################
+# Private load balancer Subnets
+################################################################################
+
+locals {
+  create_private_loadbalancer_subnets = local.create_vpc && local.len_private_loadbalancer_subnets > 0
+}
+
+resource "aws_subnet" "private_loadbalancer" {
+  count = local.create_private_loadbalancer_subnets ? local.len_private_loadbalancer_subnets : 0
+
+  assign_ipv6_address_on_creation                = var.enable_ipv6 && var.private_loadbalancer_subnet_ipv6_native ? true : var.private_loadbalancer_subnet_assign_ipv6_address_on_creation
+  availability_zone                              = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) > 0 ? element(var.azs, count.index) : null
+  availability_zone_id                           = length(regexall("^[a-z]{2}-", element(var.azs, count.index))) == 0 ? element(var.azs, count.index) : null
+  cidr_block                                     = var.private_loadbalancer_subnet_ipv6_native ? null : element(concat(var.private_loadbalancer_subnets, [""]), count.index)
+  enable_dns64                                   = var.enable_ipv6 && var.private_loadbalancer_subnet_enable_dns64
+  enable_resource_name_dns_aaaa_record_on_launch = var.enable_ipv6 && var.private_loadbalancer_subnet_enable_resource_name_dns_aaaa_record_on_launch
+  enable_resource_name_dns_a_record_on_launch    = !var.private_loadbalancer_subnet_ipv6_native && var.private_loadbalancer_subnet_enable_resource_name_dns_a_record_on_launch
+  ipv6_cidr_block                                = var.enable_ipv6 && length(var.private_loadbalancer_subnet_ipv6_prefixes) > 0 ? cidrsubnet(aws_vpc.this[0].ipv6_cidr_block, 8, var.private_loadbalancer_subnet_ipv6_prefixes[count.index]) : null
+  ipv6_native                                    = var.enable_ipv6 && var.private_loadbalancer_subnet_ipv6_native
+  private_dns_hostname_type_on_launch            = var.private_loadbalancer_subnet_private_dns_hostname_type_on_launch
+  vpc_id                                         = local.vpc_id
+
+  tags = merge(
+    {
+      Name = try(
+        var.private_loadbalancer_subnet_names[count.index],
+        format("${var.name}-${var.private_loadbalancer_subnet_suffix}-%s", element(var.azs, count.index))
+      )
+    },
+    var.tags,
+    var.private_loadbalancer_subnet_tags,
+    lookup(var.private_loadbalancer_subnet_tags_per_az, element(var.azs, count.index), {})
+  )
+}
+
+# There are as many routing tables as the number of NAT gateways
+resource "aws_route_table" "private_loadbalancer" {
+  count = local.create_private_loadbalancer_subnets && local.max_subnet_length > 0 ? local.nat_gateway_count : 0
+
+  vpc_id = local.vpc_id
+
+  tags = merge(
+    {
+      "Name" = var.single_nat_gateway ? "${var.name}-${var.private_loadbalancer_subnet_suffix}" : format(
+        "${var.name}-${var.private_loadbalancer_subnet_suffix}-%s",
+        element(var.azs, count.index),
+      )
+    },
+    var.tags,
+    var.private_loadbalancer_route_table_tags,
+  )
+}
+
+resource "aws_route_table_association" "private_loadbalancer" {
+  count = local.create_private_loadbalancer_subnets ? local.len_private_loadbalancer_subnets : 0
+
+  subnet_id = element(aws_subnet.private_loadbalancer[*].id, count.index)
+  route_table_id = element(
+    aws_route_table.private_loadbalancer[*].id,
+    var.single_nat_gateway ? 0 : count.index,
+  )
+}
+
+################################################################################
+# Private Loadbalancer Network ACLs
+################################################################################
+
+locals {
+  create_private_loadbalancer_network_acl = local.create_private_loadbalancer_subnets && var.private_loadbalancer_dedicated_network_acl
+}
+
+resource "aws_network_acl" "private_loadbalancer" {
+  count = local.create_private_loadbalancer_network_acl ? 1 : 0
+
+  vpc_id     = local.vpc_id
+  subnet_ids = aws_subnet.private_loadbalancer[*].id
+
+  tags = merge(
+    { "Name" = "${var.name}-${var.private_loadbalancer_subnet_suffix}" },
+    var.tags,
+    var.private_loadbalancer_acl_tags,
+  )
+}
+
+resource "aws_network_acl_rule" "private_loadbalancer_inbound" {
+  count = local.create_private_loadbalancer_network_acl ? length(var.private_loadbalancer_inbound_acl_rules) : 0
+
+  network_acl_id = aws_network_acl.private_loadbalancer[0].id
+
+  egress          = false
+  rule_number     = var.private_loadbalancer_inbound_acl_rules[count.index]["rule_number"]
+  rule_action     = var.private_loadbalancer_inbound_acl_rules[count.index]["rule_action"]
+  from_port       = lookup(var.private_loadbalancer_inbound_acl_rules[count.index], "from_port", null)
+  to_port         = lookup(var.private_loadbalancer_inbound_acl_rules[count.index], "to_port", null)
+  icmp_code       = lookup(var.private_loadbalancer_inbound_acl_rules[count.index], "icmp_code", null)
+  icmp_type       = lookup(var.private_loadbalancer_inbound_acl_rules[count.index], "icmp_type", null)
+  protocol        = var.private_loadbalancer_inbound_acl_rules[count.index]["protocol"]
+  cidr_block      = lookup(var.private_loadbalancer_inbound_acl_rules[count.index], "cidr_block", null)
+  ipv6_cidr_block = lookup(var.private_loadbalancer_inbound_acl_rules[count.index], "ipv6_cidr_block", null)
+}
+
+resource "aws_network_acl_rule" "private_loadbalancer_outbound" {
+  count = local.create_private_loadbalancer_network_acl ? length(var.private_loadbalancer_outbound_acl_rules) : 0
+
+  network_acl_id = aws_network_acl.private_loadbalancer[0].id
+
+  egress          = true
+  rule_number     = var.private_loadbalancer_outbound_acl_rules[count.index]["rule_number"]
+  rule_action     = var.private_loadbalancer_outbound_acl_rules[count.index]["rule_action"]
+  from_port       = lookup(var.private_loadbalancer_outbound_acl_rules[count.index], "from_port", null)
+  to_port         = lookup(var.private_loadbalancer_outbound_acl_rules[count.index], "to_port", null)
+  icmp_code       = lookup(var.private_loadbalancer_outbound_acl_rules[count.index], "icmp_code", null)
+  icmp_type       = lookup(var.private_loadbalancer_outbound_acl_rules[count.index], "icmp_type", null)
+  protocol        = var.private_loadbalancer_outbound_acl_rules[count.index]["protocol"]
+  cidr_block      = lookup(var.private_loadbalancer_outbound_acl_rules[count.index], "cidr_block", null)
+  ipv6_cidr_block = lookup(var.private_loadbalancer_outbound_acl_rules[count.index], "ipv6_cidr_block", null)
 }
 
 ################################################################################
