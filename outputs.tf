@@ -1,7 +1,9 @@
 locals {
-  redshift_route_table_ids = aws_route_table.redshift[*].id
-  public_route_table_ids   = aws_route_table.public[*].id
-  private_route_table_ids  = aws_route_table.private[*].id
+  redshift_route_table_ids             = aws_route_table.redshift[*].id
+  public_route_table_ids               = aws_route_table.public[*].id
+  private_route_table_ids              = aws_route_table.private[*].id
+  eks_control_plane_route_table_ids    = aws_route_table.eks_control_plane[*].id
+  private_loadbalancer_route_table_ids = aws_route_table.private_loadbalancer[*].id
 }
 
 ################################################################################
@@ -238,16 +240,6 @@ output "eks_control_plane_route_table_ids" {
   value       = local.eks_control_plane_route_table_ids
 }
 
-output "eks_control_plane_nat_gateway_route_ids" {
-  description = "List of IDs of the eks_control_plane nat gateway route"
-  value       = aws_route.eks_control_plane_nat_gateway[*].id
-}
-
-output "eks_control_plane_ipv6_egress_route_ids" {
-  description = "List of IDs of the ipv6 egress route"
-  value       = aws_route.eks_control_plane_ipv6_egress[*].id
-}
-
 output "eks_control_plane_route_table_association_ids" {
   description = "List of IDs of the eks_control_plane route table association"
   value       = aws_route_table_association.eks_control_plane[*].id
@@ -290,16 +282,6 @@ output "private_loadbalancer_subnets_ipv6_cidr_blocks" {
 output "private_loadbalancer_route_table_ids" {
   description = "List of IDs of private_loadbalancer route tables"
   value       = local.private_loadbalancer_route_table_ids
-}
-
-output "private_loadbalancer_nat_gateway_route_ids" {
-  description = "List of IDs of the private_loadbalancer nat gateway route"
-  value       = aws_route.private_loadbalancer_nat_gateway[*].id
-}
-
-output "private_loadbalancer_ipv6_egress_route_ids" {
-  description = "List of IDs of the ipv6 egress route"
-  value       = aws_route.private_loadbalancer_ipv6_egress[*].id
 }
 
 output "private_loadbalancer_route_table_association_ids" {
