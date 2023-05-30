@@ -210,6 +210,114 @@ output "private_network_acl_arn" {
 }
 
 ################################################################################
+# EKS Control Subnets
+################################################################################
+
+output "eks_control_plane_subnets" {
+  description = "List of IDs of eks_control_plane subnets"
+  value       = aws_subnet.eks_control_plane[*].id
+}
+
+output "eks_control_plane_subnet_arns" {
+  description = "List of ARNs of eks_control_plane subnets"
+  value       = aws_subnet.eks_control_plane[*].arn
+}
+
+output "eks_control_plane_subnets_cidr_blocks" {
+  description = "List of cidr_blocks of eks_control_plane subnets"
+  value       = compact(aws_subnet.eks_control_plane[*].cidr_block)
+}
+
+output "eks_control_plane_subnets_ipv6_cidr_blocks" {
+  description = "List of IPv6 cidr_blocks of eks_control_plane subnets in an IPv6 enabled VPC"
+  value       = compact(aws_subnet.eks_control_plane[*].ipv6_cidr_block)
+}
+
+output "eks_control_plane_route_table_ids" {
+  description = "List of IDs of eks_control_plane route tables"
+  value       = local.eks_control_plane_route_table_ids
+}
+
+output "eks_control_plane_nat_gateway_route_ids" {
+  description = "List of IDs of the eks_control_plane nat gateway route"
+  value       = aws_route.eks_control_plane_nat_gateway[*].id
+}
+
+output "eks_control_plane_ipv6_egress_route_ids" {
+  description = "List of IDs of the ipv6 egress route"
+  value       = aws_route.eks_control_plane_ipv6_egress[*].id
+}
+
+output "eks_control_plane_route_table_association_ids" {
+  description = "List of IDs of the eks_control_plane route table association"
+  value       = aws_route_table_association.eks_control_plane[*].id
+}
+
+output "eks_control_plane_network_acl_id" {
+  description = "ID of the eks_control_plane network ACL"
+  value       = try(aws_network_acl.eks_control_plane[0].id, null)
+}
+
+output "eks_control_plane_network_acl_arn" {
+  description = "ARN of the eks_control_plane network ACL"
+  value       = try(aws_network_acl.eks_control_plane[0].arn, null)
+}
+
+################################################################################
+# Private Loadbalancer Subnets
+################################################################################
+
+output "private_loadbalancer_subnets" {
+  description = "List of IDs of private_loadbalancer subnets"
+  value       = aws_subnet.private_loadbalancer[*].id
+}
+
+output "private_loadbalancer_subnet_arns" {
+  description = "List of ARNs of private_loadbalancer subnets"
+  value       = aws_subnet.private_loadbalancer[*].arn
+}
+
+output "private_loadbalancer_subnets_cidr_blocks" {
+  description = "List of cidr_blocks of private_loadbalancer subnets"
+  value       = compact(aws_subnet.private_loadbalancer[*].cidr_block)
+}
+
+output "private_loadbalancer_subnets_ipv6_cidr_blocks" {
+  description = "List of IPv6 cidr_blocks of private_loadbalancer subnets in an IPv6 enabled VPC"
+  value       = compact(aws_subnet.private_loadbalancer[*].ipv6_cidr_block)
+}
+
+output "private_loadbalancer_route_table_ids" {
+  description = "List of IDs of private_loadbalancer route tables"
+  value       = local.private_loadbalancer_route_table_ids
+}
+
+output "private_loadbalancer_nat_gateway_route_ids" {
+  description = "List of IDs of the private_loadbalancer nat gateway route"
+  value       = aws_route.private_loadbalancer_nat_gateway[*].id
+}
+
+output "private_loadbalancer_ipv6_egress_route_ids" {
+  description = "List of IDs of the ipv6 egress route"
+  value       = aws_route.private_loadbalancer_ipv6_egress[*].id
+}
+
+output "private_loadbalancer_route_table_association_ids" {
+  description = "List of IDs of the private_loadbalancer route table association"
+  value       = aws_route_table_association.private_loadbalancer[*].id
+}
+
+output "private_loadbalancer_network_acl_id" {
+  description = "ID of the private_loadbalancer network ACL"
+  value       = try(aws_network_acl.private_loadbalancer[0].id, null)
+}
+
+output "private_loadbalancer_network_acl_arn" {
+  description = "ARN of the private_loadbalancer network ACL"
+  value       = try(aws_network_acl.private_loadbalancer[0].arn, null)
+}
+
+################################################################################
 # Outpost Subnets
 ################################################################################
 
